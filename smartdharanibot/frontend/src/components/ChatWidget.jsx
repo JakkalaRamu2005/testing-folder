@@ -5,7 +5,7 @@ import "./chatwidget.css";
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: "system", content: "You are Smart Dharani — assist with Telangana land records." },
+    { role: "system", content: "./systemPrompt.txt" },
   ]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);

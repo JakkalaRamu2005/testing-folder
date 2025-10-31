@@ -1,104 +1,85 @@
-// ✅ Import modules
-import express from "express";
-import { WebSocketServer, WebSocket } from "ws";
-import dotenv from "dotenv";
+import 'dotenv/config';
+import { WebSocketServer } from 'ws';
+import { WebSocket } from 'ws';
 
-dotenv.config();
+const PORT = 8080;
+const GEMINI_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
+const API_KEY = process.env.GEMINI_API_KEY;
 
-// ✅ App setup
-const app = express();
-const PORT = 5000;
+if (!API_KEY) {
+  console.error('❌ Missing GEMINI_API_KEY in .env');
+  process.exit(1);
+}
 
-app.get("/", (req, res) => res.send("🎙️ Gemini Live API backend running..."));
-const server = app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
 
-// ✅ WebSocket server (Frontend <-> Backend)
-const wss = new WebSocketServer({ server });
 
-// ---------------------------------------------
-// Gemini Live API connection logic (like your reference)
-// ---------------------------------------------
+const wss = new WebSocketServer({ port: PORT });
+console.log(`🚀 WebSocket proxy server running on ws://localhost:${PORT}`);
 
-const GEMINI_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-09-2025";
 
-wss.on("connection", async (frontendSocket) => {
-  console.log("🌐 Frontend connected");
+wss.on('connection', (clientWs) => {
+  console.log('👤 Client connected');
 
-  // ✅ Connect backend to Gemini Live API
-  const geminiSocket = new WebSocket(
-    `wss://generativelanguage.googleapis.com/v1beta/models/${GEMINI_LIVE_MODEL}:connect?key=${process.env.GEMINI_API_KEY}`
-  );
+  // Connect to Gemini Live API
+  const geminiWs = new WebSocket(`${GEMINI_WS_URL}?key=${API_KEY}`);
 
-  // Queue for messages
-  const responseQueue = [];
-
-  // -----------------------------
-  // Helper: Wait for next message
-  // -----------------------------
-  async function waitMessage() {
-    while (responseQueue.length === 0) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    return responseQueue.shift();
-  }
-
-  // -----------------------------
-  // Helper: Handle one "turn"
-  // -----------------------------
-  async function handleTurn() {
-    const turns = [];
-    let done = false;
-    while (!done) {
-      const message = await waitMessage();
-      turns.push(message);
-      if (message?.serverContent?.turnComplete) done = true;
-    }
-    return turns;
-  }
-
-  // -----------------------------
-  // Gemini connection callbacks
-  // -----------------------------
-  geminiSocket.onopen = () => {
-    console.log("🧠 Gemini Live API Connected");
+  geminiWs.on('open', () => {
+    console.log('✅ Connected to Gemini Live API');
+    
+    // Send initial configuration
     const config = {
-      responseModalities: ["AUDIO"],
-      systemInstruction: "You are a friendly Telugu-speaking crop advisor.",
+      model: 'models/gemini-2.5-flash-native-audio-preview-09-2025',
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: 'Kore'
+            }
+          }
+        }
+      },
+      systemInstruction: {
+        parts: [{ text: 'You are a helpful voice assistant. Have natural conversations with users. Be friendly and conversational.' }]
+      }
     };
 
-    // Send config to Gemini
-    geminiSocket.send(JSON.stringify({ setup: { config } }));
-  };
+    geminiWs.send(JSON.stringify({ setup: config }));
+  });
 
-  geminiSocket.onmessage = async (event) => {
-    const msg = JSON.parse(event.data.toString());
-    responseQueue.push(msg);
-    frontendSocket.send(JSON.stringify(msg)); // forward to React
-  };
-
-  geminiSocket.onerror = (e) => console.error("❌ Gemini error:", e.message);
-  geminiSocket.onclose = () => console.log("🔌 Gemini closed");
-
-  // -----------------------------
-  // Frontend sends audio chunks
-  // -----------------------------
-  frontendSocket.on("message", async (rawData) => {
-    try {
-      const msg = JSON.parse(rawData.toString());
-      if (msg?.realtimeInput?.mediaChunks) {
-        // Forward audio chunks to Gemini
-        geminiSocket.send(JSON.stringify(msg));
-      }
-    } catch (err) {
-      console.error("⚠️ Invalid message from frontend", err);
+  // Forward messages from client to Gemini
+  clientWs.on('message', (message) => {
+    if (geminiWs.readyState === WebSocket.OPEN) {
+      geminiWs.send(message);
     }
   });
 
-  // -----------------------------
-  // On Frontend close
-  // -----------------------------
-  frontendSocket.on("close", () => {
-    console.log("❎ Frontend disconnected");
-    geminiSocket.close();
+  // Forward messages from Gemini to client
+  geminiWs.on('message', (message) => {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(message);
+    }
+  });
+
+  // Handle errors
+  geminiWs.on('error', (error) => {
+    console.error('❌ Gemini WS error:', error.message);
+    clientWs.close();
+  });
+
+  clientWs.on('error', (error) => {
+    console.error('❌ Client WS error:', error.message);
+    geminiWs.close();
+  });
+
+  // Handle closures
+  geminiWs.on('close', () => {
+    console.log('🔴 Gemini connection closed');
+    clientWs.close();
+  });
+
+  clientWs.on('close', () => {
+    console.log('🔴 Client disconnected');
+    geminiWs.close();
   });
 });

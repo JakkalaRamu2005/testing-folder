@@ -1,14 +1,14 @@
 import { connectDB } from "@/lib/mongodb";
-import User from "../../../../models/User"
+import User from "@/models/User"
 
 
 export async function GET(req, context) {
 
-    const id = context.params.id;
+    const id = Number(context.params.id);
 
     await connectDB();
    
-    const user = await User.findById(id).lean();
+    const user = await User.findById({id}).lean();
 
     if (!user) return new Response("Not found", { status: 404 });
 

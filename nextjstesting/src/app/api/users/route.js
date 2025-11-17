@@ -1,8 +1,15 @@
 
 
 import { connectDB } from "@/lib/mongodb";
+import User from "@/models/User"
+/* 
+if you don't even know how to check whether your apis or working find or not
 
-import User from "../../../models/User"
+how do you actually solve that bro,
+
+
+
+*/
 
 export async function GET(){
 
